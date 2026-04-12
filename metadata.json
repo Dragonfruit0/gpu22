@@ -1,0 +1,5 @@
+{
+  "name": "GPU-CHAIN",
+  "description": "Decentralized P2P GPU Compute Marketplace. Execute compute tasks on remote GPUs via P2P network.",
+  "requestFramePermissions": []
+}

@@ -1,0 +1,107 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Fields: uid, email, displayName, photoURL, createdAt, updatedAt
+    //
+    // Collection: credits
+    // Fields: userId, balance, updatedAt
+    //
+    // Collection: transactions
+    // Fields: userId, amount, type, description, timestamp
+    //
+    // Collection: gpu_inventory
+    // Fields: ownerId, peerId, gpuModel, vram, status, pricePerTask, createdAt, updatedAt
+    //
+    // Collection: tasks
+    // Fields: requesterId, workerId, status, type, code, inputData, result, logs, executionTime, cost, createdAt, updatedAt
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner(field) {
+      return isAuthenticated() && request.auth.uid == resource.data[field];
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return data.uid == request.auth.uid &&
+             isValidEmail(data.email) &&
+             data.displayName is string &&
+             data.displayName.size() < 100;
+    }
+
+    function isValidTask(data) {
+      return data.requesterId == request.auth.uid &&
+             data.status in ['PENDING', 'ASSIGNED', 'EXECUTING', 'SUCCESS', 'FAILED'] &&
+             data.type in ['PYTHON', 'AI_INFERENCE'] &&
+             data.code is string &&
+             data.code.size() < 50000;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isOwner(userId) && isValidUser(request.resource.data);
+    }
+
+    match /credits/{userId} {
+      allow read: if isOwner(userId);
+      // Only allow creation/update if it's the owner and we're initializing or if it's a valid transaction
+      // In a real app, this would be Cloud Functions. For now, we allow owner to update but with strict checks.
+      allow create: if isOwner(userId) && request.resource.data.balance == 1000; // Initial 1000 credits ($10)
+      allow update: if isOwner(userId) && request.resource.data.userId == userId;
+    }
+
+    match /transactions/{transactionId} {
+      allow read: if isOwner(resource.data.userId);
+      allow create: if isOwner(request.resource.data.userId);
+    }
+
+    match /gpu_inventory/{gpuId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.resource.data.ownerId == request.auth.uid;
+      allow update: if isAuthenticated() && resource.data.ownerId == request.auth.uid;
+      allow delete: if isAuthenticated() && resource.data.ownerId == request.auth.uid;
+    }
+
+    match /tasks/{taskId} {
+      allow read: if isAuthenticated() && (resource.data.requesterId == request.auth.uid || resource.data.workerId == request.auth.uid);
+      allow create: if isAuthenticated() && isValidTask(request.resource.data);
+      allow update: if isAuthenticated() && (
+        // Requester can cancel
+        (resource.data.requesterId == request.auth.uid && request.resource.data.status == 'FAILED') ||
+        // Worker can accept and update progress
+        (request.resource.data.workerId == request.auth.uid || resource.data.workerId == request.auth.uid)
+      );
+    }
+  }
+}

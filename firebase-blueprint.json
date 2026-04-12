@@ -1,0 +1,100 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email"]
+    },
+    "CreditBalance": {
+      "title": "CreditBalance",
+      "description": "User's current credit balance",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "balance": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "balance"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Credit transaction record",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "amount": { "type": "number" },
+        "type": { "type": "string", "enum": ["DEBIT", "CREDIT"] },
+        "description": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "amount", "type", "timestamp"]
+    },
+    "GPUInventory": {
+      "title": "GPUInventory",
+      "description": "Registered GPU worker node",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string" },
+        "peerId": { "type": "string" },
+        "gpuModel": { "type": "string" },
+        "vram": { "type": "number" },
+        "status": { "type": "string", "enum": ["ONLINE", "OFFLINE"] },
+        "pricePerTask": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "peerId", "gpuModel", "status"]
+    },
+    "Task": {
+      "title": "Task",
+      "description": "Compute task request and result",
+      "type": "object",
+      "properties": {
+        "requesterId": { "type": "string" },
+        "workerId": { "type": "string" },
+        "status": { "type": "string", "enum": ["PENDING", "ASSIGNED", "EXECUTING", "SUCCESS", "FAILED"] },
+        "type": { "type": "string", "enum": ["PYTHON", "AI_INFERENCE"] },
+        "code": { "type": "string" },
+        "inputData": { "type": "string" },
+        "result": { "type": "string" },
+        "logs": { "type": "string" },
+        "executionTime": { "type": "number" },
+        "cost": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["requesterId", "status", "type", "code"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/credits/{userId}": {
+      "schema": "CreditBalance",
+      "description": "User credit balances"
+    },
+    "/transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "History of credit transactions"
+    },
+    "/gpu_inventory/{gpuId}": {
+      "schema": "GPUInventory",
+      "description": "Available GPU workers"
+    },
+    "/tasks/{taskId}": {
+      "schema": "Task",
+      "description": "Compute tasks"
+    }
+  }
+}
