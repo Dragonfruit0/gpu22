@@ -24,12 +24,12 @@ const firebaseConfig = {
   firestoreDatabaseId: "ai-studio-3a6029c6-e804-48ce-a680-2d2a62260b54"
 };
 
-// Your Peer ID from the Worker Panel
-const MY_PEER_ID = process.argv[2] || "YOUR_PEER_ID_HERE";
-const MY_WORKER_UID = process.argv[3] || "YOUR_USER_UID_HERE";
+// Your User UID from the Worker Panel
+const MY_WORKER_UID = process.argv[2] || "YOUR_USER_UID_HERE";
 
-if (MY_PEER_ID === "YOUR_PEER_ID_HERE") {
-  console.error("Error: Please provide your Peer ID as the first argument.");
+if (MY_WORKER_UID === "YOUR_USER_UID_HERE") {
+  console.error("\x1b[31m[ERROR]\x1b[0m Please provide your User UID as the first argument.");
+  console.log("Usage: node agent.js <YOUR_USER_UID>");
   process.exit(1);
 }
 
@@ -38,11 +38,52 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 
 let isBusy = false;
+let gpuDocId = null;
 
-const peer = new Peer(MY_PEER_ID);
+// Generate or use a persistent peer ID
+const peer = new Peer();
 
-peer.on('open', (id) => {
-  console.log(`\x1b[36m[GPU-CHAIN]\x1b[0m Worker Agent Online. Peer ID: ${id}`);
+peer.on('open', async (id) => {
+  console.log(`\x1b[36m[GPU-CHAIN]\x1b[0m Worker Agent Online. Local Peer ID: ${id}`);
+  
+  // Register/Update GPU status in Firestore
+  try {
+    const q = query(
+      collection(db, 'gpu_inventory'),
+      where('ownerId', '==', MY_WORKER_UID)
+    );
+    
+    // Find existing doc or create new one
+    const { getDocs } = require('firebase/firestore');
+    const snapshot = await getDocs(q);
+    
+    if (!snapshot.empty) {
+      gpuDocId = snapshot.docs[0].id;
+      await updateDoc(doc(db, 'gpu_inventory', gpuDocId), {
+        peerId: id,
+        status: 'ONLINE',
+        updatedAt: serverTimestamp()
+      });
+      console.log(`\x1b[32m[DB]\x1b[0m Existing GPU node updated.`);
+    } else {
+      const { addDoc } = require('firebase/firestore');
+      const docRef = await addDoc(collection(db, 'gpu_inventory'), {
+        ownerId: MY_WORKER_UID,
+        gpuModel: "NVIDIA RTX Worker",
+        vram: 24,
+        pricePerTask: 100,
+        peerId: id,
+        status: 'ONLINE',
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+      gpuDocId = docRef.id;
+      console.log(`\x1b[32m[DB]\x1b[0m New GPU node registered.`);
+    }
+  } catch (err) {
+    console.error(`\x1b[31m[ERROR]\x1b[0m Failed to register with Firestore:`, err.message);
+  }
+
   listenForTasks();
 });
 
@@ -58,7 +99,7 @@ peer.on('connection', (conn) => {
 
   conn.on('data', async (data) => {
     if (!data || !data.taskId) return;
-    console.log(`\x1b[32m[P2P]\x1b[0m Received task data:`, data.taskId);
+    console.log(`\x1b[32m[P2P]\x1b[0m Received task data for:`, data.taskId);
     await executeTask(data, conn);
   });
 });
@@ -69,7 +110,7 @@ async function executeTask(taskData, conn) {
   if (isBusy) return;
   isBusy = true;
 
-  console.log(`\x1b[33m[EXEC]\x1b[0m Automatically accepting and executing task ${taskId}...`);
+  console.log(`\x1b[33m[EXEC]\x1b[0m Automatically executing task ${taskId}...`);
   
   // Update Firestore to EXECUTING immediately
   const taskRef = doc(db, 'tasks', taskId);
@@ -112,7 +153,7 @@ async function executeTask(taskData, conn) {
     try {
       conn.send(resultData);
     } catch (e) {
-      console.log(`\x1b[31m[P2P]\x1b[0m Failed to send result via P2P, falling back to Firestore only.`);
+      console.log(`\x1b[31m[P2P]\x1b[0m Failed to send result via P2P.`);
     }
 
     // Update Firestore
@@ -125,16 +166,16 @@ async function executeTask(taskData, conn) {
         updatedAt: serverTimestamp()
       });
     } catch (err) {
-      console.error(`\x1b[31m[ERROR]\x1b[0m Failed to finalize task in Firestore:`, err.message);
+      console.error(`\x1b[31m[ERROR]\x1b[0m Failed to finalize task:`, err.message);
     }
 
     isBusy = false;
-    console.log(`\x1b[36m[GPU-CHAIN]\x1b[0m Task finalized. Worker is now IDLE.`);
+    console.log(`\x1b[36m[GPU-CHAIN]\x1b[0m Task finalized. Ready for next task.`);
   });
 }
 
 function listenForTasks() {
-  console.log(`\x1b[36m[GPU-CHAIN]\x1b[0m Listening for assigned tasks in Firestore...`);
+  console.log(`\x1b[36m[GPU-CHAIN]\x1b[0m Monitoring Firestore for ${MY_WORKER_UID}...`);
   
   const q = query(
     collection(db, 'tasks'),
@@ -146,15 +187,27 @@ function listenForTasks() {
     snapshot.docChanges().forEach((change) => {
       if (change.type === 'added') {
         const task = { id: change.doc.id, ...change.doc.data() };
-        console.log(`\x1b[35m[TASK]\x1b[0m New task assigned: ${task.id}`);
-        // The requester will initiate the P2P connection based on our peerId in gpu_inventory
+        console.log(`\x1b[35m[TASK]\x1b[0m New incoming task detected: ${task.id}`);
       }
     });
   });
 }
 
-process.on('SIGINT', () => {
-  console.log("\nShutting down worker agent...");
+// Clean shutdown
+const shutdown = async () => {
+  console.log("\n\x1b[31m[SHUTDOWN]\x1b[0m Going offline...");
+  if (gpuDocId) {
+    try {
+      await updateDoc(doc(db, 'gpu_inventory', gpuDocId), {
+        status: 'OFFLINE',
+        updatedAt: serverTimestamp()
+      });
+      console.log("\x1b[32m[DB]\x1b[0m Status updated to OFFLINE.");
+    } catch (e) {}
+  }
   peer.destroy();
   process.exit();
-});
+};
+
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);

@@ -117,25 +117,8 @@ export default function WorkerPanel() {
   };
 
   const registerGpu = async () => {
-    if (!auth.currentUser) return;
-
-    try {
-      const newPeerId = Math.random().toString(36).substring(2, 15);
-      const gpuRef = doc(collection(db, 'gpu_inventory'));
-      await setDoc(gpuRef, {
-        ownerId: auth.currentUser.uid,
-        peerId: newPeerId,
-        gpuModel,
-        vram,
-        status: 'OFFLINE',
-        pricePerTask: price,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      });
-      toast.success('GPU registered successfully!');
-    } catch (error) {
-      toast.error('Failed to register GPU');
-    }
+    // This button is now purely informational as the local script handles registration
+    toast.info("Follow the instructions below to start your node.");
   };
 
   const toggleStatus = async () => {
@@ -369,10 +352,24 @@ export default function WorkerPanel() {
                     {!isOnline && (
                       <div className="p-4 rounded-xl bg-yellow-500/5 border border-yellow-500/10 text-yellow-200/50 text-[10px] leading-relaxed">
                         <p className="font-bold mb-1 uppercase tracking-widest">Connection Guide:</p>
-                        <ol className="list-decimal ml-4 space-y-1">
-                          <li>Ensure your local worker-agent.js is running.</li>
-                          <li>Check that your Peer ID matches: <span className="text-cyan-400">{peerId || '...'}</span></li>
-                          <li>Verify your internet connection and firewall settings.</li>
+                        <ol className="list-decimal ml-4 space-y-3">
+                          <li>Download <code className="text-cyan-400">worker-agent.js</code> to your local machine.</li>
+                          <li>
+                            Run this command in your terminal:
+                            <div className="mt-2 p-2 bg-black rounded border border-white/10 flex items-center justify-between">
+                              <code className="text-cyan-400">node agent.js {auth.currentUser?.uid}</code>
+                              <button 
+                                onClick={() => {
+                                  navigator.clipboard.writeText(`node agent.js ${auth.currentUser?.uid}`);
+                                  toast.success('Command copied!');
+                                }}
+                                className="p-1 hover:bg-white/5 rounded"
+                              >
+                                <Copy className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </li>
+                          <li>Your node will automatically register and appear online here.</li>
                         </ol>
                       </div>
                     )}
